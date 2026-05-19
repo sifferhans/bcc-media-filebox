@@ -46,5 +46,6 @@ WHERE
         WHERE gm.group_id = g.id AND lower(gm.email) = lower(sqlc.arg(email))
     ))
     OR (g.name = 'All BCC members'         AND CAST(sqlc.arg(provider) AS TEXT) = 'bcc')
-    OR (g.name = 'All bcc.media employees' AND lower(sqlc.arg(email)) LIKE '%@bcc.media')
+    OR (g.name = 'All bcc.media employees' AND CAST(sqlc.arg(provider) AS TEXT) = 'azure')
+    OR (g.name = 'All guests'               AND CAST(sqlc.arg(provider) AS TEXT) = 'guest')
 ORDER BY g.kind, g.name;

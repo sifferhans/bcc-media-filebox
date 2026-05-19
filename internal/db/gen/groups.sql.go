@@ -133,7 +133,8 @@ WHERE
         WHERE gm.group_id = g.id AND lower(gm.email) = lower(?1)
     ))
     OR (g.name = 'All BCC members'         AND CAST(?2 AS TEXT) = 'bcc')
-    OR (g.name = 'All bcc.media employees' AND lower(?1) LIKE '%@bcc.media')
+    OR (g.name = 'All bcc.media employees' AND CAST(?2 AS TEXT) = 'azure')
+    OR (g.name = 'All guests'               AND CAST(?2 AS TEXT) = 'guest')
 ORDER BY g.kind, g.name
 `
 

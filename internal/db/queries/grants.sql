@@ -71,7 +71,8 @@ LEFT JOIN grant_targets gt ON gt.grant_id = g.id
 WHERE
     (g.principal_kind = 'user' AND lower(g.principal_value) = lower(sqlc.arg(email)))
     OR (g.principal_kind = 'group' AND g.principal_value = 'All BCC members'         AND CAST(sqlc.arg(provider) AS TEXT) = 'bcc')
-    OR (g.principal_kind = 'group' AND g.principal_value = 'All bcc.media employees' AND lower(sqlc.arg(email)) LIKE '%@bcc.media')
+    OR (g.principal_kind = 'group' AND g.principal_value = 'All bcc.media employees' AND CAST(sqlc.arg(provider) AS TEXT) = 'azure')
+    OR (g.principal_kind = 'group' AND g.principal_value = 'All guests'               AND CAST(sqlc.arg(provider) AS TEXT) = 'guest')
     OR (g.principal_kind = 'group' AND g.principal_value IN (
         SELECT gr.name FROM groups gr
         JOIN group_members gm ON gm.group_id = gr.id

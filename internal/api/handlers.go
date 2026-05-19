@@ -75,7 +75,9 @@ func (h *Handlers) ListTargets(w http.ResponseWriter, r *http.Request) {
 	}
 
 	caller := auth.CallerFrom(r.Context())
-	if caller == nil || caller.Provider == "guest" {
+	if caller == nil {
+		// Unauthenticated — the LoginGate prevents the UI from rendering this
+		// state, but return everything so the picker isn't empty in dev.
 		names := make([]string, len(all))
 		for i, t := range all {
 			names[i] = t.Name
