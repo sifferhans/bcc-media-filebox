@@ -9,10 +9,44 @@ import (
 	"time"
 )
 
+type Grant struct {
+	ID             int64
+	PrincipalKind  string
+	PrincipalValue string
+	Admin          int64
+	AllTargets     int64
+	CreatedAt      time.Time
+}
+
+type GrantTarget struct {
+	GrantID  int64
+	TargetID int64
+}
+
+type Group struct {
+	ID          int64
+	Name        string
+	Kind        string
+	Description string
+	CreatedAt   time.Time
+}
+
+type GroupMember struct {
+	GroupID int64
+	Email   string
+}
+
 type Session struct {
 	ID        string
 	UserID    int64
 	ExpiresAt time.Time
+	CreatedAt time.Time
+}
+
+type Target struct {
+	ID        int64
+	Name      string
+	Path      string
 	CreatedAt time.Time
 }
 
@@ -30,6 +64,7 @@ type Upload struct {
 	UserID        string
 	DurationMs    sql.NullInt64
 	Sha256        sql.NullString
+	TargetName    sql.NullString
 }
 
 type User struct {

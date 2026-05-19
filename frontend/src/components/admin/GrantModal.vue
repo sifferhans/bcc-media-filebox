@@ -1,0 +1,171 @@
+<script setup lang="ts">
+import { reactive, watch, computed } from 'vue'
+import type { Grant, Target, Group } from '../../composables/useAdmin'
+
+const props = defineProps<{
+  grant: Grant | null
+  prefillEmail?: string
+  targets: Target[]
+  builtinGroups: Group[]
+  customGroups: Group[]
+}>()
+const emit = defineEmits<{
+  (e: 'cancel'): void
+  (
+    e: 'save',
+    body: {
+      principalKind: 'user' | 'group'
+      principalValue: string
+      admin: boolean
+      allTargets: boolean
+      targetIds: number[]
+    },
+  ): void
+  (e: 'goToGroups'): void
+}>()
+
+const draft = reactive({
+  kind: 'user' as 'user' | 'group',
+  name: '',
+  admin: false,
+  allTargets: false,
+  targetIds: [] as number[],
+})
+
+watch(
+  () => [props.grant, props.prefillEmail] as const,
+  ([g, prefill]) => {
+    if (g) {
+      draft.kind = g.principalKind
+      draft.name = g.principalValue
+      draft.admin = g.admin
+      draft.allTargets = g.allTargets
+      draft.targetIds = [...g.targetIds]
+    } else {
+      draft.kind = prefill ? 'user' : 'user'
+      draft.name = prefill ?? ''
+      draft.admin = false
+      draft.allTargets = false
+      draft.targetIds = []
+    }
+  },
+  { immediate: true },
+)
+
+const isEdit = computed(() => !!props.grant)
+const valid = computed(() => draft.name.trim().length > 0)
+
+const selectedGroup = computed(() =>
+  [...props.builtinGroups, ...props.customGroups].find(g => g.name === draft.name) ?? null,
+)
+
+function setKind(k: 'user' | 'group') {
+  draft.kind = k
+  draft.name = ''
+}
+
+function toggleTarget(id: number) {
+  const i = draft.targetIds.indexOf(id)
+  if (i >= 0) draft.targetIds.splice(i, 1)
+  else draft.targetIds.push(id)
+}
+
+function onSave() {
+  if (!valid.value) return
+  emit('save', {
+    principalKind: draft.kind,
+    principalValue: draft.name.trim(),
+    admin: draft.admin,
+    allTargets: draft.allTargets,
+    targetIds: draft.admin || draft.allTargets ? [] : [...draft.targetIds],
+  })
+}
+</script>
+
+<template>
+  <div class="modal-bg" @click.self="emit('cancel')">
+    <div class="modal fb-fade" style="width: 560px">
+      <h2>{{ isEdit ? 'Edit grant' : 'Grant access' }}</h2>
+      <div class="sub">Pick a person or a group, choose their role, and select which targets they can upload to.</div>
+
+      <div class="field">
+        <label>Principal type</label>
+        <div class="seg">
+          <button :class="{ active: draft.kind === 'user' }" @click="setKind('user')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="8" r="3.2"/><path d="M5 20c1.5-3.6 4-5 7-5s5.5 1.4 7 5"/></svg>
+            Individual user
+          </button>
+          <button :class="{ active: draft.kind === 'group' }" @click="setKind('group')">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="8" r="3"/><circle cx="17" cy="9" r="2.5"/><path d="M3 19c1-3 3.5-4.5 6-4.5s5 1.5 6 4.5"/><path d="M15 19c.5-2 2-3 3.5-3s3 1 3.5 3"/></svg>
+            Group
+          </button>
+        </div>
+      </div>
+
+      <div v-if="draft.kind === 'user'" class="field">
+        <label>Email address</label>
+        <input v-model="draft.name" placeholder="someone@bcc.media" autofocus />
+        <div class="hint">User must have signed in once via BCC Login or Azure AD to be matched.</div>
+      </div>
+
+      <div v-else class="field">
+        <label>Group</label>
+        <select v-model="draft.name">
+          <option disabled value="">Choose a group…</option>
+          <optgroup label="Built-in directory groups">
+            <option v-for="gr in builtinGroups" :key="gr.id" :value="gr.name">{{ gr.name }}</option>
+          </optgroup>
+          <optgroup label="Custom groups" v-if="customGroups.length">
+            <option v-for="gr in customGroups" :key="gr.id" :value="gr.name">{{ gr.name }}</option>
+          </optgroup>
+        </select>
+        <div class="hint" v-if="selectedGroup">{{ selectedGroup.description }}</div>
+        <div class="hint" v-else-if="customGroups.length === 0">
+          No custom groups yet.
+          <a href="#" @click.prevent="emit('goToGroups')" style="color:var(--accent)">Create one →</a>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Role</label>
+        <label
+          style="display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--line-2);border-radius:8px;text-transform:none;letter-spacing:0;color:var(--ink);font-size:13.5px;cursor:pointer;background:var(--bg);"
+          :style="draft.admin ? 'border-color:var(--accent);background:color-mix(in oklch,var(--accent),transparent 88%)' : ''"
+        >
+          <input type="checkbox" v-model="draft.admin" style="accent-color: var(--accent);" />
+          <div style="flex:1">
+            <div style="font-weight:500">Grant admin access</div>
+            <div style="font-size:12px;color:var(--ink-3);margin-top:2px">Can manage targets and other people's access. Implies access to all targets.</div>
+          </div>
+        </label>
+      </div>
+
+      <div class="field" v-if="!draft.admin">
+        <label>Allowed upload targets</label>
+        <div class="target-pick">
+          <label class="all-toggle" :class="{ checked: draft.allTargets }">
+            <input type="checkbox" v-model="draft.allTargets" />
+            <span style="font-weight:500">All targets, including future ones</span>
+          </label>
+          <template v-if="!draft.allTargets">
+            <label v-for="t in targets" :key="t.id" :class="{ checked: draft.targetIds.includes(t.id) }">
+              <input type="checkbox" :checked="draft.targetIds.includes(t.id)" @change="toggleTarget(t.id)" />
+              <span>{{ t.name }}</span>
+              <span class="meta">{{ t.path }}</span>
+            </label>
+          </template>
+        </div>
+        <div class="hint" v-if="!draft.allTargets && draft.targetIds.length === 0">
+          If you grant no targets, this person won't be able to upload anything — only sign in.
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="btn btn-ghost" @click="emit('cancel')">Cancel</button>
+        <button class="btn btn-primary" :disabled="!valid" @click="onSave">
+          {{ isEdit ? 'Save changes' : 'Add grant' }}
+        </button>
+      </div>
+    </div>
+  </div>
+</template>

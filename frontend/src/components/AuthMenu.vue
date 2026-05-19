@@ -1,10 +1,16 @@
 <script setup lang="ts">
 import { computed, ref, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useAuth } from '../composables/useAuth'
 import { useProviders } from '../composables/useProviders'
 
 const { state, signIn, signOut, changeUser } = useAuth()
 const providers = useProviders()
+const router = useRouter()
+const route = useRoute()
+
+const isAdmin = computed(() => state.authenticated && state.role === 'admin')
+const onAdminPage = computed(() => route.path.startsWith('/admin'))
 
 const open = ref(false)
 const menuRef = ref<HTMLDivElement | null>(null)
@@ -90,6 +96,15 @@ onBeforeUnmount(() => document.removeEventListener('click', onDocClick))
         </button>
         <div v-if="providers.length > 0" class="my-1 border-t border-gray-100 dark:border-gray-700"></div>
       </template>
+
+      <button
+        v-if="isAdmin && !onAdminPage"
+        type="button"
+        @click="close(); router.push('/admin')"
+        class="w-full text-left px-3 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-700 cursor-pointer"
+      >
+        Admin
+      </button>
 
       <button
         type="button"

@@ -262,6 +262,11 @@ func (h *Handlers) Callback(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "user storage failed", http.StatusInternalServerError)
 		return
 	}
+	if user.Email.Valid && user.Email.String != "" {
+		if _, err := RecomputeRoleForUser(ctx, h.queries, user.ID, user.Email.String, user.Provider); err != nil {
+			log.Printf("recompute role for %d: %v", user.ID, err)
+		}
+	}
 	if _, err := h.sessions.Create(ctx, w, user.ID); err != nil {
 		log.Printf("create session: %v", err)
 		http.Error(w, "session create failed", http.StatusInternalServerError)

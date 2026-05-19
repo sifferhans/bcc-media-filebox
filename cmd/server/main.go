@@ -34,9 +34,9 @@ func main() {
 	dbPath := envOr("DB_PATH", "filebox.db")
 	baseURL := os.Getenv("BASE_URL") // e.g. "https://upload.example.com"
 
-	targets, err := config.LoadTargets()
+	envTargets, err := config.LoadTargetsFromEnv()
 	if err != nil {
-		log.Fatalf("failed to load targets: %v", err)
+		log.Fatalf("failed to read TARGET_N_* env vars: %v", err)
 	}
 
 	authConfig, err := auth.LoadConfig(baseURL)
@@ -60,6 +60,10 @@ func main() {
 	}
 
 	queries := db.New(database)
+
+	if err := config.BootstrapTargets(context.Background(), queries, envTargets); err != nil {
+		log.Fatalf("failed to bootstrap targets: %v", err)
+	}
 
 	var (
 		authManager  *auth.Manager
@@ -89,7 +93,7 @@ func main() {
 		}
 	}
 
-	srv, err := server.New(queries, uploadDir, baseURL, frontendFS, targets, authManager, sessionStore)
+	srv, err := server.New(queries, uploadDir, baseURL, frontendFS, authManager, sessionStore)
 	if err != nil {
 		log.Fatalf("failed to create server: %v", err)
 	}

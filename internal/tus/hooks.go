@@ -24,11 +24,10 @@ type EventProcessor struct {
 	queries   *db.Queries
 	uploadDir string
 	tempDir   string
-	targets   []config.Target
 }
 
-func NewEventProcessor(queries *db.Queries, uploadDir, tempDir string, targets []config.Target) *EventProcessor {
-	return &EventProcessor{queries: queries, uploadDir: uploadDir, tempDir: tempDir, targets: targets}
+func NewEventProcessor(queries *db.Queries, uploadDir, tempDir string) *EventProcessor {
+	return &EventProcessor{queries: queries, uploadDir: uploadDir, tempDir: tempDir}
 }
 
 // Run processes all tus events in a single goroutine to avoid race conditions.
@@ -73,10 +72,11 @@ func (ep *EventProcessor) handleCreated(event handler.HookEvent) {
 	contentType := info.MetaData["filetype"]
 	userID := info.MetaData["userid"]
 	sha256Hash := info.MetaData["sha256"]
+	targetName := info.MetaData["target"]
 
 	err := ep.queries.CreateUpload(context.Background(), db.CreateUploadParams{
-		ID:     info.ID,
-		UserID: userID,
+		ID:       info.ID,
+		UserID:   userID,
 		Filename: filename,
 		Size:     info.Size,
 		ContentType: sql.NullString{
@@ -88,6 +88,10 @@ func (ep *EventProcessor) handleCreated(event handler.HookEvent) {
 		Sha256: sql.NullString{
 			String: sha256Hash,
 			Valid:  sha256Hash != "",
+		},
+		TargetName: sql.NullString{
+			String: targetName,
+			Valid:  targetName != "",
 		},
 	})
 	if err != nil {
@@ -133,9 +137,10 @@ func (ep *EventProcessor) handleComplete(event handler.HookEvent) {
 }
 
 func (ep *EventProcessor) finalizeUpload(info handler.FileInfo, completedAt time.Time) {
-	// Resolve target directory
+	// Resolve target directory from the DB — targets can be added/edited by
+	// admins at runtime, so this can't be cached at startup.
 	targetName := info.MetaData["target"]
-	targetDir, ok := config.TargetDir(ep.targets, targetName)
+	targetDir, ok := config.TargetDirFromDB(context.Background(), ep.queries, targetName)
 	if !ok {
 		targetDir = filepath.Join(ep.uploadDir, "RawMaterial")
 	}

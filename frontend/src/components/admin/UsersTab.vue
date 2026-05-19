@@ -1,0 +1,134 @@
+<script setup lang="ts">
+import { ref, computed } from 'vue'
+import { useAdmin, type AdminUser } from '../../composables/useAdmin'
+import {
+  formatBytes,
+  relTime,
+  initials,
+  providerLabel,
+  providerColor,
+  avatarBg,
+} from '../../composables/adminHelpers'
+
+const emit = defineEmits<{ (e: 'open', u: AdminUser): void }>()
+
+const { users, targets } = useAdmin()
+const userQuery = ref('')
+const userFilter = ref<'all' | 'admin' | 'guest'>('all')
+
+const filteredUsers = computed(() => {
+  const q = userQuery.value.trim().toLowerCase()
+  return users.value.filter(u => {
+    if (userFilter.value === 'admin' && u.role !== 'admin') return false
+    if (userFilter.value === 'guest' && u.role !== 'guest' && u.provider !== 'guest') return false
+    if (q && !u.name.toLowerCase().includes(q) && !u.email.toLowerCase().includes(q)) return false
+    return true
+  })
+})
+
+const activeCount = computed(() => users.value.filter(u => u.active).length)
+const totalUploads = computed(() => users.value.reduce((s, u) => s + u.uploads, 0))
+const totalBytes = computed(() => users.value.reduce((s, u) => s + u.totalBytes, 0))
+const bytesThisMonth = computed(() => users.value.reduce((s, u) => s + u.bytesThisMonth, 0))
+const avgPerUser = computed(() => (users.value.length === 0 ? 0 : totalBytes.value / users.value.length))
+
+function role(u: AdminUser) {
+  if (u.role === 'admin') return 'admin'
+  if (u.provider === 'guest' || u.role === 'guest') return 'guest'
+  return 'uploader'
+}
+</script>
+
+<template>
+  <div class="fb-fade">
+    <div class="section-head">
+      <div>
+        <h1>Users</h1>
+        <div class="sub">Everyone who has signed into FileBox at least once, with their lifetime upload stats. Click a row to see their full activity.</div>
+      </div>
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="seg" style="padding:3px">
+          <button :class="{ active: userFilter === 'all' }" @click="userFilter='all'">All</button>
+          <button :class="{ active: userFilter === 'admin' }" @click="userFilter='admin'">Admins</button>
+          <button :class="{ active: userFilter === 'guest' }" @click="userFilter='guest'">Guests</button>
+        </div>
+        <input v-model="userQuery" class="user-search" placeholder="Search…" />
+      </div>
+    </div>
+
+    <div class="stat-strip">
+      <div class="stat-card">
+        <div class="l">Total users</div>
+        <div class="n">{{ users.length }}</div>
+        <div class="s">{{ activeCount }} active this month</div>
+      </div>
+      <div class="stat-card">
+        <div class="l">Uploads, all time</div>
+        <div class="n">{{ totalUploads.toLocaleString() }}</div>
+        <div class="s">Across {{ targets.length }} {{ targets.length === 1 ? 'target' : 'targets' }}</div>
+      </div>
+      <div class="stat-card">
+        <div class="l">Data uploaded</div>
+        <div class="n">{{ formatBytes(totalBytes) }}</div>
+        <div class="s">{{ formatBytes(bytesThisMonth) }} this month</div>
+      </div>
+      <div class="stat-card">
+        <div class="l">Avg per user</div>
+        <div class="n">{{ formatBytes(avgPerUser) }}</div>
+        <div class="s">·</div>
+      </div>
+    </div>
+
+    <div class="card">
+      <table>
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>Last login</th>
+            <th style="text-align:right">Uploads</th>
+            <th style="text-align:right">Volume</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="u in filteredUsers" :key="u.id" @click="emit('open', u)" style="cursor:pointer">
+            <td>
+              <div class="name-cell">
+                <div class="avatar-md" :style="{ background: avatarBg(u.email || u.name) }">{{ initials(u.name || u.email) }}</div>
+                <div>
+                  <div class="primary">{{ u.name || u.email }}</div>
+                  <div class="secondary">
+                    {{ u.email }} · <span :style="{ color: providerColor(u.provider) }">{{ providerLabel(u.provider) }}</span>
+                  </div>
+                </div>
+              </div>
+            </td>
+            <td>
+              <span v-if="role(u) === 'admin'" class="chip accent"><span class="chip-dot"></span>Admin</span>
+              <span v-else-if="role(u) === 'guest'" class="chip warn"><span class="chip-dot"></span>Guest</span>
+              <span v-else class="chip"><span class="chip-dot"></span>Uploader</span>
+            </td>
+            <td>
+              <div style="font-size:13.5px">{{ relTime(u.lastLoginAt) }}</div>
+              <div class="mono" style="font-size:11.5px;color:var(--ink-3);margin-top:2px">{{ u.lastLoginAt.slice(0, 10) }}</div>
+            </td>
+            <td style="text-align:right"><span class="mono" style="font-size:13px">{{ u.uploads.toLocaleString() }}</span></td>
+            <td style="text-align:right"><span class="mono" style="font-size:13px">{{ formatBytes(u.totalBytes) }}</span></td>
+            <td>
+              <span v-if="u.active" class="chip ok"><span class="chip-dot"></span>Active</span>
+              <span v-else class="chip" style="color:var(--ink-3)"><span class="chip-dot" style="background:var(--ink-3)"></span>Dormant</span>
+            </td>
+            <td class="actions">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--ink-3)"><path d="M9 6l6 6-6 6"/></svg>
+            </td>
+          </tr>
+          <tr v-if="filteredUsers.length === 0">
+            <td colspan="7" style="padding: 48px; text-align: center; color: var(--ink-3);">No users match.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</template>

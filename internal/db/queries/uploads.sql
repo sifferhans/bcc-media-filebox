@@ -1,6 +1,6 @@
 -- name: CreateUpload :exec
-INSERT INTO uploads (id, user_id, filename, size, content_type, is_partial, final_upload_id, sha256)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?);
+INSERT INTO uploads (id, user_id, filename, size, content_type, is_partial, final_upload_id, sha256, target_name)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetUpload :one
 SELECT * FROM uploads WHERE id = ?;

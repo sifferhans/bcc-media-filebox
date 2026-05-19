@@ -11,7 +11,6 @@ import (
 
 	"filebox/internal/api"
 	"filebox/internal/auth"
-	"filebox/internal/config"
 	db "filebox/internal/db/gen"
 	"filebox/internal/tus"
 
@@ -23,7 +22,6 @@ import (
 type Server struct {
 	mux      *http.ServeMux
 	queries  *db.Queries
-	targets  []config.Target
 	manager  *auth.Manager
 	sessions *auth.SessionStore
 	baseURL  string
@@ -32,11 +30,10 @@ type Server struct {
 // New constructs the HTTP server. The manager and sessions arguments may be
 // nil — in that case all auth routes return guest responses and uploads are
 // tagged with "guest:<ulid>" user_ids.
-func New(queries *db.Queries, uploadDir string, baseURL string, frontendFS fs.FS, targets []config.Target, manager *auth.Manager, sessions *auth.SessionStore) (*Server, error) {
+func New(queries *db.Queries, uploadDir string, baseURL string, frontendFS fs.FS, manager *auth.Manager, sessions *auth.SessionStore) (*Server, error) {
 	s := &Server{
 		mux:      http.NewServeMux(),
 		queries:  queries,
-		targets:  targets,
 		manager:  manager,
 		sessions: sessions,
 		baseURL:  baseURL,
@@ -83,7 +80,7 @@ func (s *Server) setupTus(uploadDir string, baseURL string) error {
 		return err
 	}
 
-	ep := tus.NewEventProcessor(s.queries, uploadDir, tempDir, s.targets)
+	ep := tus.NewEventProcessor(s.queries, uploadDir, tempDir)
 	go ep.Run(h.UnroutedHandler)
 
 	s.mux.Handle("/files/", http.StripPrefix("/files/", h))
@@ -143,9 +140,12 @@ func (s *Server) resolveUploadUserID(hook tushandler.HookEvent) (string, error) 
 }
 
 func (s *Server) setupAPI() {
-	h := api.NewHandlers(s.queries, s.targets)
+	h := api.NewHandlers(s.queries)
 	s.mux.HandleFunc("GET /api/targets", h.ListTargets)
 	s.mux.HandleFunc("GET /api/uploads", h.ListUploads)
+
+	admin := api.NewAdminHandlers(s.queries)
+	admin.Register(s.mux)
 }
 
 func (s *Server) setupAuth() {
@@ -158,7 +158,27 @@ func (s *Server) setupFrontend(frontendFS fs.FS) {
 		log.Println("No embedded frontend, serving API only")
 		return
 	}
-	s.mux.Handle("/", http.FileServerFS(frontendFS))
+	fileServer := http.FileServerFS(frontendFS)
+	indexBytes, _ := fs.ReadFile(frontendFS, "index.html")
+
+	s.mux.Handle("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Existing asset? serve it. Otherwise fall through to index.html so
+		// the SPA router (/admin, /admin/foo, etc.) can take over.
+		if r.URL.Path != "/" {
+			if _, err := fs.Stat(frontendFS, strings.TrimPrefix(r.URL.Path, "/")); err == nil {
+				fileServer.ServeHTTP(w, r)
+				return
+			}
+		}
+		if r.URL.Path == "/" {
+			fileServer.ServeHTTP(w, r)
+			return
+		}
+		// SPA fallback: serve index.html so vue-router resolves the route
+		// client-side. Cache the bytes to avoid stat'ing the FS every time.
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(indexBytes)
+	}))
 }
 
 func (s *Server) Handler() http.Handler {

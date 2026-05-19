@@ -8,7 +8,29 @@ package db
 import (
 	"context"
 	"database/sql"
+	"time"
 )
+
+const aggregateUploadStats = `-- name: AggregateUploadStats :one
+SELECT
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 THEN 1 ELSE 0 END), 0) AS uploads,
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 THEN size ELSE 0 END), 0) AS total_bytes,
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 AND created_at >= date('now', 'start of month') THEN size ELSE 0 END), 0) AS bytes_this_month
+FROM uploads
+`
+
+type AggregateUploadStatsRow struct {
+	Uploads        interface{}
+	TotalBytes     interface{}
+	BytesThisMonth interface{}
+}
+
+func (q *Queries) AggregateUploadStats(ctx context.Context) (AggregateUploadStatsRow, error) {
+	row := q.db.QueryRowContext(ctx, aggregateUploadStats)
+	var i AggregateUploadStatsRow
+	err := row.Scan(&i.Uploads, &i.TotalBytes, &i.BytesThisMonth)
+	return i, err
+}
 
 const getUser = `-- name: GetUser :one
 SELECT id, provider, subject, email, name, created_at, last_login_at, role FROM users WHERE id = ?
@@ -16,6 +38,26 @@ SELECT id, provider, subject, email, name, created_at, last_login_at, role FROM 
 
 func (q *Queries) GetUser(ctx context.Context, id int64) (User, error) {
 	row := q.db.QueryRowContext(ctx, getUser, id)
+	var i User
+	err := row.Scan(
+		&i.ID,
+		&i.Provider,
+		&i.Subject,
+		&i.Email,
+		&i.Name,
+		&i.CreatedAt,
+		&i.LastLoginAt,
+		&i.Role,
+	)
+	return i, err
+}
+
+const getUserByEmail = `-- name: GetUserByEmail :one
+SELECT id, provider, subject, email, name, created_at, last_login_at, role FROM users WHERE lower(email) = lower(?) ORDER BY last_login_at DESC LIMIT 1
+`
+
+func (q *Queries) GetUserByEmail(ctx context.Context, lower string) (User, error) {
+	row := q.db.QueryRowContext(ctx, getUserByEmail, lower)
 	var i User
 	err := row.Scan(
 		&i.ID,
@@ -142,6 +184,85 @@ func (q *Queries) UpsertUser(ctx context.Context, arg UpsertUserParams) (User, e
 		&i.CreatedAt,
 		&i.LastLoginAt,
 		&i.Role,
+	)
+	return i, err
+}
+
+const userRecentUploads = `-- name: UserRecentUploads :many
+SELECT id, filename, size, target_name, completed_at, created_at
+FROM uploads
+WHERE user_id = ? AND status = 'completed' AND is_partial = 0
+ORDER BY completed_at DESC
+LIMIT 10
+`
+
+type UserRecentUploadsRow struct {
+	ID          string
+	Filename    string
+	Size        int64
+	TargetName  sql.NullString
+	CompletedAt sql.NullTime
+	CreatedAt   time.Time
+}
+
+func (q *Queries) UserRecentUploads(ctx context.Context, userID string) ([]UserRecentUploadsRow, error) {
+	rows, err := q.db.QueryContext(ctx, userRecentUploads, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []UserRecentUploadsRow
+	for rows.Next() {
+		var i UserRecentUploadsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Filename,
+			&i.Size,
+			&i.TargetName,
+			&i.CompletedAt,
+			&i.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const userUploadStats = `-- name: UserUploadStats :one
+SELECT
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 THEN 1 ELSE 0 END), 0) AS uploads,
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 THEN size ELSE 0 END), 0) AS total_bytes,
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 AND created_at >= date('now', 'start of month') THEN 1 ELSE 0 END), 0) AS uploads_this_month,
+    COALESCE(SUM(CASE WHEN status = 'completed' AND is_partial = 0 AND created_at >= date('now', 'start of month') THEN size ELSE 0 END), 0) AS bytes_this_month,
+    COALESCE(SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END), 0) AS failures
+FROM uploads
+WHERE user_id = ?
+`
+
+type UserUploadStatsRow struct {
+	Uploads          interface{}
+	TotalBytes       interface{}
+	UploadsThisMonth interface{}
+	BytesThisMonth   interface{}
+	Failures         interface{}
+}
+
+func (q *Queries) UserUploadStats(ctx context.Context, userID string) (UserUploadStatsRow, error) {
+	row := q.db.QueryRowContext(ctx, userUploadStats, userID)
+	var i UserUploadStatsRow
+	err := row.Scan(
+		&i.Uploads,
+		&i.TotalBytes,
+		&i.UploadsThisMonth,
+		&i.BytesThisMonth,
+		&i.Failures,
 	)
 	return i, err
 }

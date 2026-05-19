@@ -6,17 +6,15 @@ import (
 	"strings"
 
 	"filebox/internal/auth"
-	"filebox/internal/config"
 	db "filebox/internal/db/gen"
 )
 
 type Handlers struct {
 	queries *db.Queries
-	targets []config.Target
 }
 
-func NewHandlers(queries *db.Queries, targets []config.Target) *Handlers {
-	return &Handlers{queries: queries, targets: targets}
+func NewHandlers(queries *db.Queries) *Handlers {
+	return &Handlers{queries: queries}
 }
 
 type UploadResponse struct {
@@ -59,17 +57,55 @@ func toResponse(u db.Upload) UploadResponse {
 	return r
 }
 
+// ListTargets returns the names of upload targets the caller is allowed to
+// write to. Authenticated callers are filtered by the grants table:
+//   - role=admin or any grant with all_targets=1 → all targets
+//   - otherwise → union of target_ids across all matching grants
+//
+// Guests fall through unfiltered (no grants concept for them yet); empty list
+// for an authenticated non-admin with no grants is the correct "permission wall"
+// state described in the design.
 func (h *Handlers) ListTargets(w http.ResponseWriter, r *http.Request) {
-	// Caller is plumbed through here so future per-target ACLs (group/email
-	// rules) have an identity to consult. No rules are applied today.
-	_ = auth.CallerFrom(r.Context())
-
-	names := make([]string, len(h.targets))
-	for i, t := range h.targets {
-		names[i] = t.Name
-	}
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(names)
+
+	all, err := h.queries.ListTargets(r.Context())
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	caller := auth.CallerFrom(r.Context())
+	if caller == nil || caller.Provider == "guest" {
+		names := make([]string, len(all))
+		for i, t := range all {
+			names[i] = t.Name
+		}
+		_ = json.NewEncoder(w).Encode(names)
+		return
+	}
+
+	allowed, err := EffectiveTargetIDs(r.Context(), h.queries, caller)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if allowed.All {
+		names := make([]string, len(all))
+		for i, t := range all {
+			names[i] = t.Name
+		}
+		_ = json.NewEncoder(w).Encode(names)
+		return
+	}
+
+	names := make([]string, 0, len(allowed.IDs))
+	for _, t := range all {
+		if _, ok := allowed.IDs[t.ID]; ok {
+			names = append(names, t.Name)
+		}
+	}
+	_ = json.NewEncoder(w).Encode(names)
 }
 
 // ListUploads returns the history for the calling user. When the request is
